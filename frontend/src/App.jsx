@@ -21,8 +21,8 @@ import StaffMyRequests from "./pages/StaffMyRequests.jsx";
 import AdminTaskRequests from "./pages/AdminTaskRequests.jsx";
 import StaffNotifications from "./pages/StaffNotifications.jsx";
 import AdminNotifications from "./pages/AdminNotifications.jsx";
-
-
+import AdminRisks from "./pages/AdminRisks";
+import StaffRisks from "./pages/StaffRisks";
 
 function App() {
 
@@ -220,8 +220,12 @@ function App() {
           }
         />
 
+       <Route path="/admin/risks" element={<AdminRisks />} />
+       <Route path="/staff/risks" element={<StaffRisks />} />
 
       </Routes>
+
+
 
 
     </BrowserRouter>

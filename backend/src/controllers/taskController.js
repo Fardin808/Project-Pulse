@@ -1,9 +1,210 @@
 import Task from "../models/Task.js";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
+import mongoose from "mongoose";
+import Project from "../models/Project.js";
+
+  //check validiaty of the dependency
+
+  const validateDependency = async ({
+
+    taskId = null,
+    projectId,
+    dependencyId,
+    createdBy,
+     }) => {
+
+      // No dependency selected
+    if (!dependencyId) {
+      return null;
+    }
+
+    // Check whether the dependency ID is valid
+    if (!mongoose.isValidObjectId(dependencyId)) {
+      throw new Error("Invalid dependency ID");
+    }
+
+    // A task cannot depend on itself
+    if (taskId && String(taskId) === String(dependencyId)) {
+      throw new Error("A task cannot depend on itself");
+    }
+
+    // Find the prerequisite task
+    const dependency = await Task.findById(dependencyId);
+
+    if (!dependency) {
+      throw new Error("Dependency task not found");
+    }
+
+    // Dependency must belong to the same project
+    if (String(dependency.projectId) !== String(projectId)) {
+      throw new Error("Dependency must belong to the same project");
+    }
+
+    // Dependency must belong to the same admin
+    if (String(dependency.createdBy) !== String(createdBy)) {
+      throw new Error(
+        "You cannot select a dependency created by another admin"
+      );
+    }
+
+    // Prevent circular dependencies
+    const visited = new Set();
+    let current = dependency;
+
+    while (current) {
+      const currentId = String(current._id);
+
+      if (taskId && currentId === String(taskId)) {
+        throw new Error("Circular task dependency is not allowed");
+      }
+
+      if (visited.has(currentId)) {
+        throw new Error("Circular dependency detected");
+      }
+
+      visited.add(currentId);
+
+      if (!current.dependency) {
+        break;
+      }
+
+      current = await Task.findById(current.dependency);
+    }
+
+    return dependency;
+  };
+
+  // check ela
+  const getDependencyReadiness = (task, prerequisiteTask) => {
+    if (!task.dependency) {
+      return { unlocked: true, unlockDate: null };
+    }
+
+    if (!prerequisiteTask) {
+      return { unlocked: false, unlockDate: null };
+    }
+
+    // Condition 1: prerequisite completed
+    if (prerequisiteTask.status === "completed") {
+      return { unlocked: true, unlockDate: null };
+    }
+
+    // Condition 2: scheduled unlock date
+    const originalStart = task.dependencyOriginalStartDate;
+
+    const offset = Number(task.dependencyOffsetDays);
+
+    if (
+      !originalStart ||
+      !Number.isInteger(offset) ||
+      offset < 0
+    ) {
+      return { unlocked: false, unlockDate: null };
+    }
+
+    const unlockDate = new Date(originalStart);
+
+    if (Number.isNaN(unlockDate.getTime())) {
+      return { unlocked: false, unlockDate: null };
+    }
+
+    unlockDate.setUTCDate(
+      unlockDate.getUTCDate() + offset
+    );
+
+    return {
+      unlocked: Date.now() >= unlockDate.getTime(),
+      unlockDate,
+    };
+  };
+
+  // Notify staff when their dependent tasks become ready
+  const notifyReadyTasks = async (completedTask) => {
+    const dependentTasks = await Task.find({
+      dependency: completedTask._id,
+      status: { $ne: "completed" },
+    });
+
+    const notifications = [];
+
+    for (const dependentTask of dependentTasks) {
 
 
+      const readiness = getDependencyReadiness(
+        dependentTask,
+        completedTask
+      );
 
+      if (!readiness.unlocked) continue;
+
+      // A time-based task may already have unlocked earlier.
+      // Avoid incorrectly announcing it as newly ready.
+      const originalStart =
+        dependentTask.dependencyOriginalStartDate;
+
+      if (originalStart) {
+        const scheduledUnlock = new Date(originalStart);
+        const offset = Number(dependentTask.dependencyOffsetDays);
+
+        if (
+          Number.isInteger(offset) &&
+          offset >= 0 &&
+          !Number.isNaN(scheduledUnlock.getTime())
+        ) {
+          scheduledUnlock.setUTCDate(
+            scheduledUnlock.getUTCDate() + offset
+          );
+
+          if (scheduledUnlock <= new Date()) continue;
+        }
+      }
+
+      for (const memberId of dependentTask.assignedMembers) {
+        notifications.push({
+          recipient: memberId,
+          type: "task_ready",
+          title: "Task Ready to Start",
+          message: `Your task "${dependentTask.title}" is now ready to start because "${completedTask.title}" has been completed.`,
+          relatedTask: dependentTask._id,
+          relatedProject: dependentTask.projectId,
+        });
+      }
+    }
+
+    if (notifications.length > 0) {
+      await Notification.insertMany(notifications);
+    }
+  };
+
+  // Automatically update project status based on its tasks
+  const updateProjectStatus = async (projectId) => {
+
+    const totalTasks = await Task.countDocuments({
+      projectId: projectId,
+    });
+
+    const completedTasks = await Task.countDocuments({
+      projectId: projectId,
+      status: "completed",
+    });
+
+    let projectStatus;
+
+    if (totalTasks === 0) {
+      projectStatus = "pending";
+    }
+    else if (totalTasks === completedTasks) {
+      projectStatus = "completed";
+    }
+    else {
+      projectStatus = "ongoing";
+    }
+
+    await Project.findByIdAndUpdate(projectId, {
+      status: projectStatus,
+    });
+  };
 // CREATE TASK - ADMIN
 
 const createTask = async (req, res) => {
@@ -22,14 +223,54 @@ const createTask = async (req, res) => {
       actualHours,
       progressNotes,
       projectId,
+      dependency,
+      dependencyOffsetDays,
     } = req.body;
 
+    let prerequisiteTask;
+
+    const selectedOffset = dependencyOffsetDays ?? 0;
+
+    // Validate dependency
+    try {
+
+        prerequisiteTask = await validateDependency({
+          projectId,
+          dependencyId: dependency,
+          createdBy: req.user.id,
+        });
+
+        if (dependency) {
+          if (!prerequisiteTask?.plannedStartDate) {
+            return res.status(400).json({
+              message: "Prerequisite must have a planned start date.",
+            });
+          }
+
+          if (
+            selectedOffset === "" ||
+            selectedOffset === null ||
+            !Number.isInteger(Number(selectedOffset)) ||
+            Number(selectedOffset) < 0
+          ) {
+            return res.status(400).json({
+              message: "Dependency offset must be a non-negative whole number.",
+            });
+          }
+        }
+
+    } catch (error) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
 
     // Create the task
     const task = await Task.create({
       title,
       description,
       assignedMembers,
+      dependency: dependency || null,
       priority,
       status,
       plannedStartDate,
@@ -40,9 +281,20 @@ const createTask = async (req, res) => {
       progressNotes,
       projectId,
 
+
+      dependencyOffsetDays: dependency
+        ? Number(selectedOffset)
+        : 0,
+
+      dependencyOriginalStartDate: dependency
+        ? prerequisiteTask.plannedStartDate
+        : null,
+
       // Logged-in admin becomes the creator
       createdBy: req.user.id,
     });
+
+    await updateProjectStatus(task.projectId);
 
     // AUTOMATIC NOTIFICATION
     // Notify every staff member assigned to the new task
@@ -100,6 +352,7 @@ const getProjectTasks = async (req, res) => {
         "assignedMembers",
         "name email"
       )
+      .populate("dependency", "title status assignedMembers plannedStartDate")
       .populate(
         "createdBy",
         "name email"
@@ -135,6 +388,8 @@ const updateTask = async (req, res) => {
         message: "Task not found",
       });
     }
+    // Store original values to detect admin changes
+    const originalTask = oldTask.toObject();
 
     // Convert old member ObjectIds to strings
     // so that they are easier to compare.
@@ -142,7 +397,120 @@ const updateTask = async (req, res) => {
       (memberId) => memberId.toString()
     );
 
-    // STEP 2: Update the task
+
+    const updatedDependency =
+      req.body.dependency !== undefined
+        ? req.body.dependency || null
+        : oldTask.dependency;
+
+    const updatedProjectId = oldTask.projectId;
+
+    // Validate the selected dependency
+    try {
+      await validateDependency({
+        taskId: oldTask._id,
+        projectId: updatedProjectId,
+        dependencyId: updatedDependency,
+        createdBy: req.user.id,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
+
+    // Update the task
+
+    const allowedFields = [
+      "title",
+      "description",
+      "assignedMembers",
+      "priority",
+      "status",
+      "plannedStartDate",
+      "dueDate",
+      "completionDate",
+      "estimatedHours",
+      "actualHours",
+      "progressNotes",
+      "dependency",
+      "dependencyOffsetDays",
+    ];
+
+    const updateData = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    // No Dependency option
+    if (updateData.dependency === "") {
+      updateData.dependency = null;
+    }
+
+
+    const finalDependency =
+      updateData.dependency !== undefined
+        ? updateData.dependency
+        : oldTask.dependency;
+
+
+    const finalOffset =
+      updateData.dependencyOffsetDays ??
+      oldTask.dependencyOffsetDays ??
+      0;
+
+    if (!finalDependency) {
+      updateData.dependency = null;
+      updateData.dependencyOffsetDays = 0;
+      updateData.dependencyOriginalStartDate = null;
+      updateData.scheduledUnlockNotifiedAt = null;
+    } else {
+        if (
+          finalOffset === "" ||
+          finalOffset === null ||
+          !Number.isInteger(Number(finalOffset)) ||
+          Number(finalOffset) < 0
+        ) {
+        return res.status(400).json({
+          message: "Dependency offset must be a non-negative whole number.",
+        });
+      }
+
+      const dependencyChanged =
+        String(finalDependency) !== String(oldTask.dependency);
+
+      const offsetChanged =
+        Number(finalOffset) !== Number(oldTask.dependencyOffsetDays ?? 0);
+
+      // Reset notification tracking if dependency or offset changes
+      if (dependencyChanged || offsetChanged) {
+        updateData.scheduledUnlockNotifiedAt = null;
+      }
+
+      const prerequisite = await Task.findById(finalDependency);
+
+      if (
+          (dependencyChanged || !oldTask.dependencyOriginalStartDate) &&
+          !prerequisite?.plannedStartDate
+        ) {
+        return res.status(400).json({
+          message: "Prerequisite must have a planned start date.",
+        });
+      }
+
+      updateData.dependencyOffsetDays = Number(finalOffset);
+
+      if (
+        dependencyChanged ||
+        !oldTask.dependencyOriginalStartDate
+      ) {
+        updateData.dependencyOriginalStartDate =
+          prerequisite.plannedStartDate;
+      }
+    }
 
     const task = await Task.findOneAndUpdate(
       {
@@ -150,12 +518,22 @@ const updateTask = async (req, res) => {
         createdBy: req.user.id,
       },
 
-      req.body,
+      updateData,
 
       {
         new: true,
+        runValidators: true,
       }
     );
+
+    if (oldTask.status !== task.status) {
+      await updateProjectStatus(task.projectId);
+    }
+
+    // Notify staff when admin completes a prerequisite task
+    if (oldTask.status !== "completed" && task.status === "completed") {
+      await notifyReadyTasks(task);
+    }
 
     // STEP 3: Check whether admin changed assignedMembers
 
@@ -166,14 +544,6 @@ const updateTask = async (req, res) => {
         (memberId) => memberId.toString()
       );
 
-      // Find NEWLY ASSIGNED staff
-      //
-      // Example:
-      // old = [A]
-      // new = [A, B]
-      //
-      // addedMembers = [B]
-      // ------------------------------------------------
 
       const addedMembers = newMembers.filter(
         (memberId) =>
@@ -181,25 +551,13 @@ const updateTask = async (req, res) => {
       );
 
 
-      // ------------------------------------------------
-      // Find REMOVED staff
-      //
-      // Example:
-      // old = [A, B]
-      // new = [B]
-      //
-      // removedMembers = [A]
-      // ------------------------------------------------
-
       const removedMembers = oldMembers.filter(
         (memberId) =>
           !newMembers.includes(memberId)
       );
 
       // AUTOMATIC NOTIFICATION:
-      // Notify newly assigned staff
-
-
+      // Notify newly assigned
       for (const memberId of addedMembers) {
 
         await Notification.create({
@@ -245,6 +603,59 @@ const updateTask = async (req, res) => {
     }
 
 
+    // Notify existing staff when admin updates task details
+    const trackedFields = {
+      title: "Title",
+      description: "Description",
+      priority: "Priority",
+      status: "Status",
+      plannedStartDate: "Planned Start Date",
+      dueDate: "Due Date",
+      completionDate: "Completion Date",
+      estimatedHours: "Estimated Hours",
+      actualHours: "Actual Hours",
+      progressNotes: "Progress Notes",
+      dependency: "Dependency",
+      dependencyOffsetDays: "Dependency Unlock Days",
+    };
+
+    const changedFields = Object.entries(trackedFields)
+      .filter(([field]) => {
+        const oldValue = originalTask[field];
+        const newValue = task[field];
+
+        // Compare dates and ObjectIds consistently
+        const normalize = (value) => {
+          if (value === null || value === undefined) return "";
+          if (value instanceof Date) return value.toISOString();
+          return String(value);
+        };
+
+        return normalize(oldValue) !== normalize(newValue);
+      })
+      .map(([, label]) => label);
+
+    if (changedFields.length > 0) {
+      const currentMembers = task.assignedMembers.map(String);
+      const existingMembers = currentMembers.filter((memberId) =>
+        oldMembers.includes(memberId)
+      );
+
+      if (existingMembers.length > 0) {
+        const notifications = existingMembers.map((memberId) => ({
+          recipient: memberId,
+          type: "task_updated",
+          title: "Task Updated",
+          message: `Your task "${task.title}" has been updated by the admin. Changes: ${changedFields.join(", ")}.`,
+          relatedTask: task._id,
+          relatedProject: task.projectId,
+        }));
+
+        await Notification.insertMany(notifications);
+      }
+    }
+
+
     res.json({
       message: "Task updated successfully",
       task,
@@ -266,7 +677,7 @@ const updateTask = async (req, res) => {
 const deleteTask = async (req, res) => {
   try {
 
-    const task = await Task.findOneAndDelete({
+    const task = await Task.findOne({
       _id: req.params.id,
       createdBy: req.user.id,
     });
@@ -278,6 +689,38 @@ const deleteTask = async (req, res) => {
       });
     }
 
+    // Check whether other tasks depend on this task
+    const dependentTask = await Task.findOne({
+      dependency: task._id,
+    });
+
+    if (dependentTask) {
+      return res.status(400).json({
+        message: `Cannot delete "${task.title}". "${dependentTask.title}" depends on it. Remove that dependency first.`,
+      });
+    }
+
+    // Save assigned members before deleting the task
+    const assignedMembers = task.assignedMembers || [];
+
+    // Delete the task
+    await task.deleteOne();
+
+    await updateProjectStatus(task.projectId);
+
+    // Notify staff that their task was deleted
+    if (assignedMembers.length > 0) {
+      const notifications = assignedMembers.map((memberId) => ({
+        recipient: memberId,
+        type: "task_unassigned",
+        title: "Task Deleted",
+        message: `The task "${task.title}" has been deleted by the admin.`,
+        relatedTask: null,
+        relatedProject: task.projectId,
+      }));
+
+      await Notification.insertMany(notifications);
+    }
 
     res.json({
       message: "Task deleted successfully",
@@ -306,6 +749,7 @@ const getTaskById = async (req, res) => {
         path: "assignedMembers",
         select: "name email",
       })
+      .populate("dependency", "title status assignedMembers plannedStartDate")
       .populate({
         path: "createdBy",
         select: "name email",
@@ -347,6 +791,7 @@ const getMyTasks = async (req, res) => {
         "assignedMembers",
         "name email"
       )
+      .populate("dependency", "title status assignedMembers plannedStartDate")
       .populate(
         "createdBy",
         "name email"
@@ -383,6 +828,7 @@ const getMyProjectTasks = async (req, res) => {
         "createdBy",
         "name email"
       )
+      .populate("dependency", "title status assignedMembers plannedStartDate")
       .populate(
         "projectId",
         "title description start_date target_completion_date status"
@@ -432,8 +878,28 @@ const updateStaffTask = async (req, res) => {
       });
     }
 
+    // Check completion-based or time-based dependency
+    if (task.dependency) {
+      const prerequisiteTask = await Task.findById(task.dependency);
+
+      const readiness = getDependencyReadiness(
+        task,
+        prerequisiteTask
+      );
+
+      if (!readiness.unlocked) {
+        return res.status(403).json({
+          message: prerequisiteTask
+            ? "Task is locked until its dependency condition is satisfied."
+            : "Task locked. The prerequisite task no longer exists.",
+          unlockDate: readiness.unlockDate,
+        });
+      }
+    }
+
 
     // Store changed information
+    const previousStatus = task.status;
     const changes = [];
 
 
@@ -482,9 +948,19 @@ const updateStaffTask = async (req, res) => {
       });
     }
 
+    // Record the time of the latest meaningful progress update
+    task.lastProgressAt = new Date();
 
     // Save task changes
     await task.save();
+    if (previousStatus !== task.status) {
+      await updateProjectStatus(task.projectId);
+    }
+
+    // Notify dependent-task staff when this task is completed
+    if (previousStatus !== "completed" && task.status === "completed") {
+      await notifyReadyTasks(task);
+}
 
 
     // Get staff information
@@ -546,6 +1022,8 @@ const getStaffTaskById = async (req, res) => {
         "createdBy",
         "name email"
       )
+      .populate("dependency", "title status assignedMembers plannedStartDate")
+
       .populate(
         "projectId",
         "title description start_date target_completion_date status"

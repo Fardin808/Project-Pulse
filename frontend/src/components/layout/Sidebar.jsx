@@ -8,6 +8,7 @@ import {
   LogOut,
   Users,
   X,
+  ShieldAlert,
 } from "lucide-react";
 
 function Sidebar({ role, mobileOpen, setMobileOpen }) {
@@ -23,6 +24,11 @@ function Sidebar({ role, mobileOpen, setMobileOpen }) {
       name: "Projects",
       path: "/admin/projects",
       icon: FolderKanban,
+    },
+    {
+      name: "Risk Dashboard",
+      path: "/admin/risks",
+      icon: ShieldAlert,
     },
     {
       name: "Task Requests",
@@ -57,6 +63,11 @@ function Sidebar({ role, mobileOpen, setMobileOpen }) {
       name: "My Tasks",
       path: "/staff/tasks",
       icon: ListTodo,
+    },
+    {
+      name: "My Task Risks",
+      path: "/staff/risks",
+      icon: ShieldAlert,
     },
     {
       name: "Task Requests",

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
-import { createTask, getStaff } from "../services/taskApi";
+import { createTask, getStaff, getTasks } from "../services/taskApi";
 import { getMyNotifications } from "../services/notificationApi";
 import DashboardLayout from "../components/layout/DashboardLayout";
 
@@ -26,6 +26,9 @@ function CreateTask() {
   const [submitting, setSubmitting] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const [projectTasks, setProjectTasks] = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -37,12 +40,15 @@ function CreateTask() {
     actualHours: 0,
     progressNotes: "",
     assignedMembers: [],
+    dependency: "",
+    dependencyOffsetDays: 0,
     projectId: projectId,
   });
 
 
   useEffect(() => {
     fetchStaff();
+    fetchProjectTasks();
     fetchNotificationCount();
   }, []);
 
@@ -62,6 +68,20 @@ function CreateTask() {
     }
   };
 
+  // fetch all the projects
+  const fetchProjectTasks = async () => {
+    try {
+      const data = await getTasks(projectId);
+      setProjectTasks(Array.isArray(data) ? data : data.tasks || []);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message ||
+        "Failed to load project tasks"
+      );
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
 
   // Load unread notifications
   const fetchNotificationCount = async () => {
@@ -141,6 +161,30 @@ function CreateTask() {
         "Due date cannot be before the planned start date"
       );
       return;
+    }
+
+
+
+    if (formData.dependency) {
+      const prerequisite = projectTasks.find(
+        (task) => task._id === formData.dependency
+      );
+
+      if (!prerequisite?.plannedStartDate) {
+        toast.error("Prerequisite task must have a planned start date");
+        return;
+      }
+
+      const offset = Number(formData.dependencyOffsetDays);
+
+      if (
+        formData.dependencyOffsetDays === "" ||
+        !Number.isInteger(offset) ||
+        offset < 0
+      ) {
+        toast.error("Unlock days must be a non-negative whole number");
+        return;
+      }
     }
 
     try {
@@ -402,7 +446,150 @@ function CreateTask() {
         </section>
 
 
+      {/* Task Dependency */}
+      <section className="bg-white border border-gray-100 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100">
+          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+            <ListTodo size={19} />
+          </div>
+
+          <div>
+            <h2 className="font-semibold text-gray-900">
+              Task Dependency
+            </h2>
+            <p className="text-sm text-gray-400">
+              Configure when this task becomes available.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <label className={labelStyle}>Prerequisite Task</label>
+
+            <select
+              name="dependency"
+              value={formData.dependency}
+              onChange={(e) => {
+                const dependency = e.target.value;
+
+                setFormData((prev) => ({
+                  ...prev,
+                  dependency,
+                  dependencyOffsetDays: 0,
+                }));
+
+              }}
+              disabled={loadingTasks}
+              className={inputStyle}
+            >
+              <option value="">No Dependency</option>
+
+              {projectTasks.map((task) => (
+                <option key={task._id} value={task._id}>
+                  {task.title} — {task.status}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {formData.dependency && (
+            <>
+
+
+              {formData.dependency && (
+                <div>
+                  <label className={labelStyle}>
+                    Unlock After (Days)
+                  </label>
+
+                  <input
+                    type="number"
+                    name="dependencyOffsetDays"
+                    min="0"
+                    step="1"
+                    value={formData.dependencyOffsetDays}
+                    onChange={handleChange}
+                    className={inputStyle}
+                  />
+
+                  {(() => {
+                    const prerequisite = projectTasks.find(
+                      (task) => task._id === formData.dependency
+                    );
+
+                    if (!prerequisite?.plannedStartDate) {
+                      return (
+                        <p className="text-sm text-amber-600 mt-3">
+                          The prerequisite task must have a planned
+                          start date to calculate the unlock date.
+                        </p>
+                      );
+                    }
+
+                    const offset = Number(formData.dependencyOffsetDays);
+
+                    if (
+                          formData.dependencyOffsetDays === "" ||
+                          !Number.isInteger(offset) ||
+                          offset < 0
+                        ) {
+                      return (
+                        <p className="text-sm text-red-500 mt-3">
+                          Enter a valid number of days.
+                        </p>
+                      );
+                    }
+
+                    const unlockDate = new Date(
+                      prerequisite.plannedStartDate
+                    );
+
+                    unlockDate.setUTCDate(
+                      unlockDate.getUTCDate() + offset
+                    );
+
+                    return (
+                      <div className="mt-3 rounded-xl bg-indigo-50 p-4">
+                        <p className="text-xs text-indigo-600">
+                          Expected Unlock Date
+                        </p>
+                        <p className="text-sm font-semibold text-indigo-900 mt-1">
+                          {unlockDate.toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            timeZone: "UTC",
+                          })}
+                        </p>
+
+                        {/* Early completion explanation */}
+                        <p className="text-xs text-indigo-600 mt-2">
+                          This task will also unlock immediately
+                          if the prerequisite finishes earlier.
+                        </p>
+
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+            </>
+          )}
+
+          {!formData.dependency && (
+            <p className="text-xs text-gray-400">
+              This task has no prerequisite and can be
+              worked on independently.
+            </p>
+          )}
+        </div>
+      </section>
+
+
         {/* Priority and status */}
+
         <section className="bg-white border border-gray-100 rounded-2xl shadow-sm">
 
           <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100">
@@ -669,7 +856,7 @@ function CreateTask() {
                 `/admin/projects/${projectId}/tasks`
               )
             }
-            disabled={submitting}
+            disabled={submitting || loadingTasks}
             className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel

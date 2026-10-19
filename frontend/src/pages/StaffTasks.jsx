@@ -7,6 +7,9 @@ import {
   FolderKanban,
   ListTodo,
   ArrowRight,
+  Lock,
+  CheckCircle2,
+  CirclePlay,
 } from "lucide-react";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -18,6 +21,89 @@ function StaffTasks() {
   const [tasks, setTasks] = useState([]);
 
   const navigate = useNavigate();
+
+
+  const getDependencyStatus = (task) => {
+    if (task.status === "completed") {
+      return "completed";
+    }
+
+    if (!task.dependency) {
+      return "ready";
+    }
+
+    if (task.dependency.status === "completed") {
+      return "ready";
+    }
+
+    if (task.dependencyType === "time") {
+      const originalStart =
+        task.dependencyOriginalStartDate ||
+        task.dependency.plannedStartDate;
+
+      const offset = Number(task.dependencyOffsetDays);
+
+      if (
+        !originalStart ||
+        !Number.isInteger(offset) ||
+        offset < 0
+      ) {
+        return "locked";
+      }
+
+      const unlockDate = new Date(originalStart);
+
+      if (Number.isNaN(unlockDate.getTime())) {
+        return "locked";
+      }
+
+      unlockDate.setUTCDate(
+        unlockDate.getUTCDate() + offset
+      );
+
+      if (new Date() >= unlockDate) {
+        return "ready";
+      }
+    }
+
+    return "locked";
+  };
+
+const getUnlockDate = (task) => {
+  if (
+    task.dependencyType !== "time" ||
+    !task.dependency
+  ) {
+    return null;
+  }
+
+  const originalStart =
+    task.dependencyOriginalStartDate ||
+    task.dependency.plannedStartDate;
+
+  const offset = Number(task.dependencyOffsetDays);
+
+  if (
+    !originalStart ||
+    !Number.isInteger(offset) ||
+    offset < 0
+  ) {
+    return null;
+  }
+
+  const unlockDate = new Date(originalStart);
+
+  if (Number.isNaN(unlockDate.getTime())) {
+    return null;
+  }
+
+  unlockDate.setUTCDate(
+    unlockDate.getUTCDate() + offset
+  );
+
+  return unlockDate;
+};
+
 
 
   useEffect(() => {
@@ -163,6 +249,70 @@ return (
                 </div>
 
               </div>
+
+
+            {/* Dependency Status */}
+            <div className="mt-5">
+              {getDependencyStatus(task) === "completed" ? (
+                <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl p-4">
+                  <CheckCircle2 size={19} className="text-green-600 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-700">
+                      Completed
+                    </p>
+                    <p className="text-xs text-green-600 mt-1">
+                      This task has been completed.
+                    </p>
+                  </div>
+                </div>
+              ) : getDependencyStatus(task) === "locked" ? (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl p-4">
+                  <Lock size={19} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700">
+                      Locked
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      {task.dependencyType === "time" ? (
+                              <>
+                              This task unlocks when "
+                              {task.dependency?.title || "the prerequisite task"}"
+                              is completed or on{" "}
+                              {getUnlockDate(task)
+                                ? getUnlockDate(task).toLocaleDateString("en-US", {
+                                    year: "numeric",
+                                    month: "long",
+                                    day: "numeric",
+                                    timeZone: "UTC",
+                                  })
+                                : "the scheduled unlock date"}
+                              , whichever comes first.
+                            </>
+                          ) : (
+                            <>
+                              Complete "
+                              {task.dependency?.title || "the prerequisite task"}"
+                              first.
+                            </>
+                          )}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                  <CirclePlay size={19} className="text-blue-600 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-blue-700">
+                      Ready
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      This task is available to work on.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
 
 
               {/* Status */}

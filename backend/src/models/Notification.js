@@ -7,6 +7,11 @@ const notificationSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Unique identifier for an automatically generated notification
+    eventKey: {
+      type: String,
+      default: undefined,
+    },
 
     type: {
       type: String,
@@ -14,6 +19,7 @@ const notificationSchema = new mongoose.Schema(
         "task_assigned",
         "task_unassigned",
         "task_updated",
+        "task_ready",
         "request_submitted",
         "request_holding",
         "request_approved",
@@ -53,6 +59,16 @@ const notificationSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+  }
+);
+
+notificationSchema.index(
+  { eventKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      eventKey: { $type: "string" },
+    },
   }
 );
 

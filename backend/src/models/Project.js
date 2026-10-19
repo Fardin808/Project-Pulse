@@ -4,6 +4,8 @@ const projectSchema = new mongoose.Schema({
   title: {
     type: String,
     required: true,
+    trim: true,
+    minlength:1,
   },
 
   description: {

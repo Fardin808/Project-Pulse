@@ -14,7 +14,9 @@ import {
   ListTodo,
   PauseCircle,
   UserMinus,
+  Pencil,
   XCircle,
+  CirclePlay,
 } from "lucide-react";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -89,6 +91,14 @@ function StaffNotifications() {
 
     if (type === "request_rejected") {
       return "Request Rejected";
+    }
+
+    if (type === "task_updated") {
+      return "Task Updated";
+    }
+
+    if (type === "task_ready") {
+      return "Task Ready";
     }
 
     return "Notification";
@@ -210,8 +220,10 @@ function StaffNotifications() {
                 {/* Icon */}
                 <div
                   className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-                    notification.type === "task_assigned"
-                      ? "bg-blue-50 text-blue-600"
+                  notification.type === "task_assigned" ||
+                  notification.type === "task_updated" ||
+                  notification.type === "task_ready"
+                    ? "bg-blue-50 text-blue-600"
                       : notification.type === "task_unassigned"
                       ? "bg-red-50 text-red-600"
                       : notification.type === "request_approved"
@@ -224,7 +236,11 @@ function StaffNotifications() {
                   }`}
                 >
 
-                  {notification.type === "task_assigned" ? (
+                  {notification.type === "task_updated" ? (
+                    <Pencil size={20} />
+                  ) : notification.type === "task_ready" ? (
+                    <CirclePlay size={20} />
+                  ) : notification.type === "task_assigned" ? (
                     <ListTodo size={20} />
                   ) : notification.type === "task_unassigned" ? (
                     <UserMinus size={20} />
@@ -251,8 +267,10 @@ function StaffNotifications() {
                       {/* Type */}
                       <p
                         className={`text-xs font-semibold ${
-                          notification.type === "task_assigned"
-                            ? "text-blue-600"
+                        notification.type === "task_assigned" ||
+                        notification.type === "task_updated" ||
+                        notification.type === "task_ready"
+                          ? "text-blue-600"
                             : notification.type === "task_unassigned"
                             ? "text-red-600"
                             : notification.type === "request_approved"

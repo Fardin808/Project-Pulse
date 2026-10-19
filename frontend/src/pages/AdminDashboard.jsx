@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Plus,
   ListTodo,
+  ShieldAlert,
 } from "lucide-react";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -107,7 +108,7 @@ function AdminDashboard() {
 
 
       {/* Quick overview cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-8">
 
         {/* Projects */}
         <button
@@ -234,7 +235,38 @@ function AdminDashboard() {
 
         </button>
 
+        {/* Risk Dashboard */}
+        <button
+          type="button"
+          onClick={() => navigate("/admin/risks")}
+          className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm text-left hover:shadow-md transition"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm text-gray-500">
+                Risks
+              </p>
+
+              <h2 className="text-xl font-bold text-gray-900 mt-2">
+                Risk Dashboard
+              </h2>
+            </div>
+
+            <div className="w-11 h-11 bg-red-50 text-red-600 rounded-xl flex items-center justify-center">
+              <ShieldAlert size={21} />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 text-sm text-red-600 mt-5 font-medium">
+            Monitor project risks
+            <ArrowRight size={15} />
+          </div>
+        </button>
+
       </div>
+
+
+
 
 
       {/* Dashboard content */}

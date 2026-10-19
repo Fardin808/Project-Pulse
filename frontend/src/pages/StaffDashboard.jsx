@@ -8,6 +8,7 @@ import {
   FolderKanban,
   ListTodo,
   Send,
+  ShieldAlert,
 } from "lucide-react";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -139,6 +140,37 @@ return (
         </p>
 
       </button>
+
+
+
+      {/* Staff Risk Dashboard */}
+      <button
+        type="button"
+        onClick={() => navigate("/staff/risks")}
+        className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 text-left hover:border-orange-200 hover:shadow-md transition group"
+      >
+        <div className="flex items-start justify-between">
+          <div className="w-11 h-11 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+            <ShieldAlert size={21} />
+          </div>
+
+          <ArrowRight
+            size={18}
+            className="text-gray-300 group-hover:text-orange-600 group-hover:translate-x-1 transition"
+          />
+        </div>
+
+        <h2 className="font-semibold text-gray-900 mt-5">
+          My Task Risks
+        </h2>
+
+        <p className="text-sm text-gray-500 mt-2 leading-6">
+          Monitor potential risks affecting your
+          assigned tasks.
+        </p>
+      </button>
+
+
 
 
       {/* Notifications */}

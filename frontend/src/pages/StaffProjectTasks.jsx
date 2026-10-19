@@ -9,6 +9,10 @@ import {
   FolderKanban,
   Pencil,
   ListTodo,
+  Lock,
+  CheckCircle2,
+  CirclePlay,
+  Eye,
 } from "lucide-react";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -23,6 +27,45 @@ function StaffProjectTasks() {
   const [tasks, setTasks] = useState([]);
 
   const [project, setProject] = useState(null);
+
+  const getDependencyStatus = (task) => {
+    if (task.status === "completed") {
+      return "completed";
+    }
+
+    if (!task.dependency) {
+      return "ready";
+    }
+
+    // Condition 1: Prerequisite completed
+    if (task.dependency.status === "completed") {
+      return "ready";
+    }
+
+    // Condition 2: Scheduled unlock date reached
+    const originalStart = task.dependencyOriginalStartDate;
+    const offset = Number(task.dependencyOffsetDays);
+
+    if (
+      originalStart &&
+      Number.isInteger(offset) &&
+      offset >= 0
+    ) {
+      const unlockDate = new Date(originalStart);
+
+      if (!Number.isNaN(unlockDate.getTime())) {
+        unlockDate.setUTCDate(
+          unlockDate.getUTCDate() + offset
+        );
+
+        if (Date.now() >= unlockDate.getTime()) {
+          return "ready";
+        }
+      }
+    }
+
+    return "locked";
+  };
 
 
   useEffect(() => {
@@ -253,6 +296,62 @@ return (
               </div>
 
 
+              {/* Dependency Status */}
+              <div className="mt-5">
+                {getDependencyStatus(task) === "completed" ? (
+                  <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl p-4">
+                    <CheckCircle2
+                      size={19}
+                      className="text-green-600 shrink-0"
+                    />
+
+                    <div>
+                      <p className="text-sm font-semibold text-green-700">
+                        Completed
+                      </p>
+                      <p className="text-xs text-green-600 mt-1">
+                        This task has been completed.
+                      </p>
+                    </div>
+                  </div>
+                ) : getDependencyStatus(task) === "locked" ? (
+                  <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl p-4">
+                    <Lock
+                      size={19}
+                      className="text-amber-600 shrink-0 mt-0.5"
+                    />
+
+                    <div>
+                      <p className="text-sm font-semibold text-amber-700">
+                        Locked
+                      </p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        Complete "{task.dependency?.title || "the prerequisite task"}"
+                        {" "}or wait until the scheduled unlock date.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <CirclePlay
+                      size={19}
+                      className="text-blue-600 shrink-0"
+                    />
+
+                    <div>
+                      <p className="text-sm font-semibold text-blue-700">
+                        Ready
+                      </p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        This task is available to work on.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
+
               {/* Status */}
               <div className="mt-4">
 
@@ -412,8 +511,19 @@ return (
                 }
                 className="w-full inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 transition"
               >
-                <Pencil size={16} />
-                Update Task
+
+              {getDependencyStatus(task) === "locked" ? (
+                <>
+                  <Eye size={16} />
+                  View Locked Task
+                </>
+              ) : (
+                <>
+                  <Pencil size={16} />
+                  Update Task
+                </>
+              )}
+
               </button>
 
             </div>
