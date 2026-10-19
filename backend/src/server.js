@@ -18,12 +18,33 @@ import riskRoutes from "./routes/RiskRoutes.js";
 
 
 dotenv.config();
-connectDB();
 
+const isVercel = Boolean(process.env.VERCEL);
+
+if (!isVercel) {
+  connectDB().catch((error) => {
+    console.error("Database startup failed:", error);
+    process.exit(1);
+  });
+}
 const app = express(); //backend server
 
 app.use(cors());
 app.use(express.json());
+
+if (isVercel) {
+  app.use(async (req, res, next) => {
+    try {
+      await connectDB();
+      next();
+    } catch (error) {
+      res.status(503).json({
+        message: "Database connection unavailable",
+      });
+    }
+  });
+}
+
 app.use("/api/auth", authRoutes);
 app.use("/api/projects",projectRoutes);
 app.use("/api/tasks",taskRoutes);
@@ -38,6 +59,7 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
+if (!isVercel){
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 
@@ -122,4 +144,5 @@ app.listen(PORT, () => {
         console.error("Team bottleneck check failed:", error);
       }
     });
-});
+});}
+export default app;
